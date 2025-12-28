@@ -1,0 +1,72 @@
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+
+pool:
+  vmImage: 'ubuntu-22.04'
+
+variables:
+  ROS_DISTRO: humble
+  # ワークスペースのルート（このリポジトリのルートをROS2ワークスペースとして使う想定）
+  ROS2_WS: '$(Build.SourcesDirectory)'
+
+steps:
+  - task: Bash@3
+    displayName: 'Show environment info'
+    inputs:
+      targetType: 'inline'
+      script: |
+        set -e
+        echo "Working directory: $(Build.SourcesDirectory)"
+        uname -a
+        lsb_release -a || true
+
+  - task: Bash@3
+    displayName: 'Install ROS 2 Humble and dependencies'
+    inputs:
+      targetType: 'inline'
+      script: |
+        set -e
+
+        sudo apt-get update
+        sudo apt-get install -y curl gnupg2 lsb-release
+
+        # ROS 2 apt repository 設定
+        sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | \
+          sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+
+        sudo apt-get update
+
+        # 最低限のROS 2と、このパッケージに必要な依存をインストール
+        sudo apt-get install -y \
+          ros-${ROS_DISTRO}-ros-base \
+          ros-${ROS_DISTRO}-rclcpp \
+          ros-${ROS_DISTRO}-std-msgs \
+          ros-${ROS_DISTRO}-ament-cmake-clang-format \
+          ros-${ROS_DISTRO}-ament-cmake-gtest \
+          python3-colcon-common-extensions
+
+  - task: Bash@3
+    displayName: 'colcon build'
+    inputs:
+      targetType: 'inline'
+      script: |
+        set -e
+        source /opt/ros/${ROS_DISTRO}/setup.bash
+        cd "${ROS2_WS}"
+        colcon build --packages-select hello_world_clang_format
+
+  - task: Bash@3
+    displayName: 'colcon test (unit + clang_format)'
+    inputs:
+      targetType: 'inline'
+      script: |
+        set -e
+        source /opt/ros/${ROS_DISTRO}/setup.bash
+        cd "${ROS2_WS}"
+        colcon test --packages-select hello_world_clang_format
+        colcon test-result --verbose
